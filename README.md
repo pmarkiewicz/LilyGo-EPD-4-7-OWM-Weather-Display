@@ -1,3 +1,8 @@
+# Goals
+First goal is to migrate code from arduino platform to platform io.
+Second goal is to refactor code to be easie to navite and modification.
+Third goal is to clenup the code.
+
 # LilyGo-EPD-4-7-OWM-Weather-Display
 
 Open Weather Map weather station using [LilyGo EPD 4.7" display](https://bit.ly/3exI3Hb)
@@ -18,11 +23,10 @@ This fork fixes the problem by setting the correct license for the code while ke
 
 # Compiling and flashing
 
-Edit `owm_credentials.h` and enter OWM API key as well as the location for which you want to display the weather data
+Edit `src/config.cpp` and enter OWM API key as well as the location for which you want to display the weather data
 
 To compile you will need following libraries
 
-* https://github.com/Xinyuan-LilyGO/LilyGo-EPD47
-* https://github.com/bblanchon/ArduinoJson
+* https://github.com/Xinyuan-LilyGO/LilyGo-EPD47 - this one is added submodule to git
+* https://github.com/bblanchon/ArduinoJson - this is referenced in platform.ini
 
-In board manager choose ESP32 Dev Module with PSRAM Enabled
