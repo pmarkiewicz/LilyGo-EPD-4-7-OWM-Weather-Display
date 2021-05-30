@@ -62,5 +62,13 @@ void DrawAngledLine(int x, int y, int x1, int y1, int size, int color);
 void DrawUVI(int x, int y);
 void DrawBattery(int x, int y);
 void DisplayGeneralInfoSection();
-
+void DisplayDisplayWindSection(int x, int y, float angle, float windspeed, int Cradius);
+void DrawMoon(int x, int y, int diameter, int dd, int mm, int yy, hemisphere hemisphere);
+void DrawRSSI(int x, int y, int rssi);
+void Display_UVIndexLevel(int x, int y, float UVI);
+void DisplayStatusSection(int x, int y, int rssi);
+void DrawSunsetImage(int x, int y);
+void DrawSunriseImage(int x, int y);
+void DrawMoonImage(int x, int y);
+void Nodata(int x, int y, bool IconSize, String IconName);
 

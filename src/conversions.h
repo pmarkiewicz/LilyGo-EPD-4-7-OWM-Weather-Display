@@ -13,3 +13,4 @@ String ConvertUnixTimeToDateTime(int unix_time);
 int JulianDate(int d, int m, int y);
 double NormalizedMoonPhase(int d, int m, int y);
 String MoonPhase(int d, int m, int y, hemisphere hemisphere);
+String WindDegToOrdinalDirection(float winddirection);

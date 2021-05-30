@@ -3,11 +3,16 @@
 #include "epd_driver.h"         // https://github.com/Xinyuan-LilyGO/LilyGo-EPD47
 #include "esp_adc_cal.h"        // In-built
 
+#include "moon.h"
+#include "sunrise.h"
+#include "sunset.h"
 #include "open_sans.h"
-#include "display.h"
 #include "globals.h"
 #include "config.h"
 #include "uvi.h"
+#include "lang.h"
+#include "conversions.h"
+#include "display.h"
 
 const uint16_t White     = 0xFF;
 const uint16_t LightGrey = 0xBB;
@@ -99,3 +104,130 @@ void DisplayGeneralInfoSection() {
   drawString(500, 2, Date_str + "  @   " + Time_str, LEFT);
 }
 
+void DisplayDisplayWindSection(int x, int y, float angle, float windspeed, int Cradius) {
+  arrow(x, y, Cradius - 22, angle, 18, 33); // Show wind direction on outer circle of width and length
+  setFont(OpenSans8B);
+  int dxo, dyo, dxi, dyi;
+  drawCircle(x, y, Cradius, Black);       // Draw compass circle
+  drawCircle(x, y, Cradius + 1, Black);   // Draw compass circle
+  drawCircle(x, y, Cradius * 0.7, Black); // Draw compass inner circle
+  for (float a = 0; a < 360; a = a + 22.5) {
+    dxo = Cradius * cos((a - 90) * PI / 180);
+    dyo = Cradius * sin((a - 90) * PI / 180);
+    if (a == 45)  drawString(dxo + x + 15, dyo + y - 18, TXT_NE, CENTER);
+    if (a == 135) drawString(dxo + x + 20, dyo + y - 2,  TXT_SE, CENTER);
+    if (a == 225) drawString(dxo + x - 20, dyo + y - 2,  TXT_SW, CENTER);
+    if (a == 315) drawString(dxo + x - 15, dyo + y - 18, TXT_NW, CENTER);
+    dxi = dxo * 0.9;
+    dyi = dyo * 0.9;
+    drawLine(dxo + x, dyo + y, dxi + x, dyi + y, Black);
+    dxo = dxo * 0.7;
+    dyo = dyo * 0.7;
+    dxi = dxo * 0.9;
+    dyi = dyo * 0.9;
+    drawLine(dxo + x, dyo + y, dxi + x, dyi + y, Black);
+  }
+  drawString(x, y - Cradius - 20,     TXT_N, CENTER);
+  drawString(x, y + Cradius + 10,     TXT_S, CENTER);
+  drawString(x - Cradius - 15, y - 5, TXT_W, CENTER);
+  drawString(x + Cradius + 10, y - 5, TXT_E, CENTER);
+  drawString(x + 3, y + 50, String(angle, 0) + "°", CENTER);
+  setFont(OpenSans12B);
+  drawString(x, y - 50, WindDegToOrdinalDirection(angle), CENTER);
+  setFont(OpenSans24B);
+  drawString(x + 3, y - 18, String(windspeed, 1), CENTER);
+  setFont(OpenSans12B);
+  drawString(x, y + 25, (Units == "M" ? "m/s" : "mph"), CENTER);
+}
+
+void DrawMoon(int x, int y, int diameter, int dd, int mm, int yy, hemisphere hemisphere) {
+  double Phase = NormalizedMoonPhase(dd, mm, yy);
+
+  if (hemisphere == south) Phase = 1 - Phase;
+  // Draw dark part of moon
+  fillCircle(x + diameter - 1, y + diameter, diameter / 2 + 1, DarkGrey);
+  const int number_of_lines = 90;
+  for (double Ypos = 0; Ypos <= number_of_lines / 2; Ypos++) {
+    double Xpos = sqrt(number_of_lines / 2 * number_of_lines / 2 - Ypos * Ypos);
+    // Determine the edges of the lighted part of the moon
+    double Rpos = 2 * Xpos;
+    double Xpos1, Xpos2;
+    if (Phase < 0.5) {
+      Xpos1 = -Xpos;
+      Xpos2 = Rpos - 2 * Phase * Rpos - Xpos;
+    }
+    else {
+      Xpos1 = Xpos;
+      Xpos2 = Xpos - 2 * Phase * Rpos + Rpos;
+    }
+    // Draw light part of moon
+    double pW1x = (Xpos1 + number_of_lines) / number_of_lines * diameter + x;
+    double pW1y = (number_of_lines - Ypos)  / number_of_lines * diameter + y;
+    double pW2x = (Xpos2 + number_of_lines) / number_of_lines * diameter + x;
+    double pW2y = (number_of_lines - Ypos)  / number_of_lines * diameter + y;
+    double pW3x = (Xpos1 + number_of_lines) / number_of_lines * diameter + x;
+    double pW3y = (Ypos + number_of_lines)  / number_of_lines * diameter + y;
+    double pW4x = (Xpos2 + number_of_lines) / number_of_lines * diameter + x;
+    double pW4y = (Ypos + number_of_lines)  / number_of_lines * diameter + y;
+    drawLine(pW1x, pW1y, pW2x, pW2y, White);
+    drawLine(pW3x, pW3y, pW4x, pW4y, White);
+  }
+  drawCircle(x + diameter - 1, y + diameter, diameter / 2, Black);
+}
+
+void DrawRSSI(int x, int y, int rssi) {
+  int WIFIsignal = 0;
+  int xpos = 1;
+  for (int _rssi = -100; _rssi <= rssi; _rssi = _rssi + 20) {
+    if (_rssi <= -20)  WIFIsignal = 30; //            <-20dbm displays 5-bars
+    if (_rssi <= -40)  WIFIsignal = 24; //  -40dbm to  -21dbm displays 4-bars
+    if (_rssi <= -60)  WIFIsignal = 18; //  -60dbm to  -41dbm displays 3-bars
+    if (_rssi <= -80)  WIFIsignal = 12; //  -80dbm to  -61dbm displays 2-bars
+    if (_rssi <= -100) WIFIsignal = 6;  // -100dbm to  -81dbm displays 1-bar
+    fillRect(x + xpos * 8, y - WIFIsignal, 6, WIFIsignal, Black);
+    xpos++;
+  }
+}
+
+void Display_UVIndexLevel(int x, int y, float UVI) {
+  String Level = "";
+  if (UVI <= 2)              Level = " (L)";
+  if (UVI >= 3 && UVI <= 5)  Level = " (M)";
+  if (UVI >= 6 && UVI <= 7)  Level = " (H)";
+  if (UVI >= 8 && UVI <= 10) Level = " (VH)";
+  if (UVI >= 11)             Level = " (EX)";
+  drawString(x + 20, y - 5, String(UVI, (UVI < 0 ? 1 : 0)) + Level, LEFT);
+  DrawUVI(x - 10, y - 5);
+}
+
+void DisplayStatusSection(int x, int y, int rssi) {
+  setFont(OpenSans8B);
+  DrawRSSI(x + 305, y + 15, rssi);
+  DrawBattery(x + 150, y);
+}
+
+void Nodata(int x, int y, bool IconSize, String IconName) {
+  if (IconSize == LargeIcon) setFont(OpenSans24B); else setFont(OpenSans12B);
+  drawString(x - 3, y - 10, "?", CENTER);
+}
+
+void DrawMoonImage(int x, int y) {
+  Rect_t area = {
+    .x = x, .y = y, .width  = moon_width, .height =  moon_height
+  };
+  epd_draw_grayscale_image(area, (uint8_t *) moon_data);
+}
+
+void DrawSunriseImage(int x, int y) {
+  Rect_t area = {
+    .x = x, .y = y, .width  = sunrise_width, .height =  sunrise_height
+  };
+  epd_draw_grayscale_image(area, (uint8_t *) sunrise_data);
+}
+
+void DrawSunsetImage(int x, int y) {
+  Rect_t area = {
+    .x = x, .y = y, .width  = sunset_width, .height =  sunset_height
+  };
+  epd_draw_grayscale_image(area, (uint8_t *) sunset_data);
+}

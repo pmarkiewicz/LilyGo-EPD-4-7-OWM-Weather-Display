@@ -17,12 +17,13 @@
 #include "lang.h"
 #include "globals.h"
 #include "utils.h"
+#include "wifi_manager.h"
 
 #define SCREEN_WIDTH   EPD_WIDTH
 #define SCREEN_HEIGHT  EPD_HEIGHT
 
 //################  VERSION  ##################################################
-String version = "2.7 / 4.7in";  // Programme version, see change log at end
+const String version = "2.7.1 / 4.7in";  // Programme version, see change log at end
 //################ VARIABLES ##################################################
 
 
@@ -31,13 +32,11 @@ String version = "2.7 / 4.7in";  // Programme version, see change log at end
 #define barchart_on   true
 #define barchart_off  false
 
-boolean LargeIcon   = true;
-boolean SmallIcon   = false;
 #define Large  20           // For icon drawing
 #define Small  10           // For icon drawing
 String  Time_str = "--:--:--";
 String  Date_str = "-- --- ----";
-int     wifi_signal, CurrentHour = 0, CurrentMin = 0, CurrentSec = 0, EventCnt = 0;
+int     CurrentHour = 0, CurrentMin = 0, CurrentSec = 0, EventCnt = 0;
 //################ PROGRAM VARIABLES and OBJECTS ##########################################
 #define max_readings 24 // Limited to 3-days here, but could go to 5-days = 40 as the data is issued  
 
@@ -59,9 +58,6 @@ long Delta           = 30; // ESP32 rtc speed compensation, prevents display at 
 
 //fonts
 #include "open_sans.h"
-#include "moon.h"
-#include "sunrise.h"
-#include "sunset.h"
 #include "uvi.h"
 #include "display.h"
 #include "conversions.h"
@@ -71,16 +67,11 @@ bool obtainWeatherData(WiFiClient & client, const String & RequestType);
 void DisplayWeather();
 void addmoon(int x, int y, bool IconSize);
 void DrawRSSI(int x, int y, int rssi);
-void Nodata(int x, int y, bool IconSize, String IconName);
-void DrawMoonImage(int x, int y);
-void DrawSunriseImage(int x, int y);
-void DrawSunsetImage(int x, int y);
 void Rain(int x, int y, bool IconSize, String IconName);
 void ChanceRain(int x, int y, bool IconSize, String IconName);
 void Thunderstorms(int x, int y, bool IconSize, String IconName);
 void Snow(int x, int y, bool IconSize, String IconName);
 void DrawPressureAndTrend(int x, int y, float pressure, String slope);
-void DisplayStatusSection(int x, int y, int rssi);
 void Mist(int x, int y, bool IconSize, String IconName);
 void BrokenClouds(int x, int y, bool IconSize, String IconName);
 void FewClouds(int x, int y, bool IconSize, String IconName);
@@ -88,12 +79,9 @@ void ScatteredClouds(int x, int y, bool IconSize, String IconName);
 void ClearSky(int x, int y, bool IconSize, String IconName);
 void DrawGraph(int x_pos, int y_pos, int gwidth, int gheight, float Y1Min, float Y1Max, String title, float DataArray[], int readings, boolean auto_scale, boolean barchart_mode);
 void DrawMoon(int x, int y, int diameter, int dd, int mm, int yy, hemisphere hemisphere);
-String MoonPhase(int d, int m, int y, hemisphere hemisphere);
 void DisplayConditionsSection(int x, int y, String IconName, bool IconSize);
-void Display_UVIndexLevel(int x, int y, float UVI);
 void CloudCover(int x, int y, int CloudCover);
 void Visibility(int x, int y, String Visibility);
-String WindDegToOrdinalDirection(float winddirection);
 void DisplayVisiCCoverUVISection(int x, int y);
 void DisplayTempHumiPressSection(int x, int y);
 void DisplayGraphSection(int x, int y);
@@ -102,7 +90,6 @@ void DisplayMainWeatherSection(int x, int y);
 void DisplayForecastTextSection(int x, int y);
 void DisplayWeatherIcon(int x, int y);
 void DisplayAstronomySection(int x, int y);
-void DisplayDisplayWindSection(int x, int y, float angle, float windspeed, int Cradius);
 
 
 void BeginSleep() {
@@ -125,38 +112,6 @@ boolean SetupTime() {
   return UpdateLocalTime();
 }
 
-uint8_t StartWiFi() {
-  Serial.println("\r\nConnecting to: " + String(ssid));
-  //IPAddress dns(8, 8, 8, 8); // Use Google DNS
-  WiFi.disconnect();
-  WiFi.mode(WIFI_STA); // switch off AP
-  WiFi.setAutoConnect(true);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(ssid, password);
-
-  if (WiFi.waitForConnectResult() != WL_CONNECTED) {
-    Serial.printf("STA: Failed!\n");
-    WiFi.disconnect(false);
-    delay(500);
-    WiFi.begin(ssid, password);
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    wifi_signal = WiFi.RSSI(); // Get Wifi Signal strength now, because the WiFi will be turned off to save power!
-    Serial.println("WiFi connected at: " + WiFi.localIP().toString());
-  }
-  else {
-    Serial.println("WiFi connection *** FAILED ***");
-  }
-
-  return WiFi.status();
-}
-
-void StopWiFi() {
-  WiFi.disconnect();
-  WiFi.mode(WIFI_OFF);
-  Serial.println("WiFi switched Off");
-}
 
 void InitialiseSystem() {
   StartTime = millis();
@@ -350,61 +305,6 @@ void DisplayMainWeatherSection(int x, int y) {
   DisplayVisiCCoverUVISection(x - 10, y + 95);
 }
 
-void DisplayDisplayWindSection(int x, int y, float angle, float windspeed, int Cradius) {
-  arrow(x, y, Cradius - 22, angle, 18, 33); // Show wind direction on outer circle of width and length
-  setFont(OpenSans8B);
-  int dxo, dyo, dxi, dyi;
-  drawCircle(x, y, Cradius, Black);       // Draw compass circle
-  drawCircle(x, y, Cradius + 1, Black);   // Draw compass circle
-  drawCircle(x, y, Cradius * 0.7, Black); // Draw compass inner circle
-  for (float a = 0; a < 360; a = a + 22.5) {
-    dxo = Cradius * cos((a - 90) * PI / 180);
-    dyo = Cradius * sin((a - 90) * PI / 180);
-    if (a == 45)  drawString(dxo + x + 15, dyo + y - 18, TXT_NE, CENTER);
-    if (a == 135) drawString(dxo + x + 20, dyo + y - 2,  TXT_SE, CENTER);
-    if (a == 225) drawString(dxo + x - 20, dyo + y - 2,  TXT_SW, CENTER);
-    if (a == 315) drawString(dxo + x - 15, dyo + y - 18, TXT_NW, CENTER);
-    dxi = dxo * 0.9;
-    dyi = dyo * 0.9;
-    drawLine(dxo + x, dyo + y, dxi + x, dyi + y, Black);
-    dxo = dxo * 0.7;
-    dyo = dyo * 0.7;
-    dxi = dxo * 0.9;
-    dyi = dyo * 0.9;
-    drawLine(dxo + x, dyo + y, dxi + x, dyi + y, Black);
-  }
-  drawString(x, y - Cradius - 20,     TXT_N, CENTER);
-  drawString(x, y + Cradius + 10,     TXT_S, CENTER);
-  drawString(x - Cradius - 15, y - 5, TXT_W, CENTER);
-  drawString(x + Cradius + 10, y - 5, TXT_E, CENTER);
-  drawString(x + 3, y + 50, String(angle, 0) + "°", CENTER);
-  setFont(OpenSans12B);
-  drawString(x, y - 50, WindDegToOrdinalDirection(angle), CENTER);
-  setFont(OpenSans24B);
-  drawString(x + 3, y - 18, String(windspeed, 1), CENTER);
-  setFont(OpenSans12B);
-  drawString(x, y + 25, (Units == "M" ? "m/s" : "mph"), CENTER);
-}
-
-String WindDegToOrdinalDirection(float winddirection) {
-  if (winddirection >= 348.75 || winddirection < 11.25)  return TXT_N;
-  if (winddirection >=  11.25 && winddirection < 33.75)  return TXT_NNE;
-  if (winddirection >=  33.75 && winddirection < 56.25)  return TXT_NE;
-  if (winddirection >=  56.25 && winddirection < 78.75)  return TXT_ENE;
-  if (winddirection >=  78.75 && winddirection < 101.25) return TXT_E;
-  if (winddirection >= 101.25 && winddirection < 123.75) return TXT_ESE;
-  if (winddirection >= 123.75 && winddirection < 146.25) return TXT_SE;
-  if (winddirection >= 146.25 && winddirection < 168.75) return TXT_SSE;
-  if (winddirection >= 168.75 && winddirection < 191.25) return TXT_S;
-  if (winddirection >= 191.25 && winddirection < 213.75) return TXT_SSW;
-  if (winddirection >= 213.75 && winddirection < 236.25) return TXT_SW;
-  if (winddirection >= 236.25 && winddirection < 258.75) return TXT_WSW;
-  if (winddirection >= 258.75 && winddirection < 281.25) return TXT_W;
-  if (winddirection >= 281.25 && winddirection < 303.75) return TXT_WNW;
-  if (winddirection >= 303.75 && winddirection < 326.25) return TXT_NW;
-  if (winddirection >= 326.25 && winddirection < 348.75) return TXT_NNW;
-  return "?";
-}
 
 void DisplayTempHumiPressSection(int x, int y) {
   setFont(OpenSans18B);
@@ -450,17 +350,6 @@ void DisplayVisiCCoverUVISection(int x, int y) {
   Display_UVIndexLevel(x + 265, y, WxConditions[0].UVI);
 }
 
-void Display_UVIndexLevel(int x, int y, float UVI) {
-  String Level = "";
-  if (UVI <= 2)              Level = " (L)";
-  if (UVI >= 3 && UVI <= 5)  Level = " (M)";
-  if (UVI >= 6 && UVI <= 7)  Level = " (H)";
-  if (UVI >= 8 && UVI <= 10) Level = " (VH)";
-  if (UVI >= 11)             Level = " (EX)";
-  drawString(x + 20, y - 5, String(UVI, (UVI < 0 ? 1 : 0)) + Level, LEFT);
-  DrawUVI(x - 10, y - 5);
-}
-
 void DisplayForecastWeather(int x, int y, int index, int fwidth) {
   x = x + fwidth * index;
   DisplayConditionsSection(x + fwidth / 2 - 5, y + 85, WxForecast[index].Icon, SmallIcon);
@@ -484,40 +373,6 @@ void DisplayAstronomySection(int x, int y) {
   DrawSunsetImage(x + 180, y + 60);
 }
 
-void DrawMoon(int x, int y, int diameter, int dd, int mm, int yy, hemisphere hemisphere) {
-  double Phase = NormalizedMoonPhase(dd, mm, yy);
-
-  if (hemisphere == south) Phase = 1 - Phase;
-  // Draw dark part of moon
-  fillCircle(x + diameter - 1, y + diameter, diameter / 2 + 1, DarkGrey);
-  const int number_of_lines = 90;
-  for (double Ypos = 0; Ypos <= number_of_lines / 2; Ypos++) {
-    double Xpos = sqrt(number_of_lines / 2 * number_of_lines / 2 - Ypos * Ypos);
-    // Determine the edges of the lighted part of the moon
-    double Rpos = 2 * Xpos;
-    double Xpos1, Xpos2;
-    if (Phase < 0.5) {
-      Xpos1 = -Xpos;
-      Xpos2 = Rpos - 2 * Phase * Rpos - Xpos;
-    }
-    else {
-      Xpos1 = Xpos;
-      Xpos2 = Xpos - 2 * Phase * Rpos + Rpos;
-    }
-    // Draw light part of moon
-    double pW1x = (Xpos1 + number_of_lines) / number_of_lines * diameter + x;
-    double pW1y = (number_of_lines - Ypos)  / number_of_lines * diameter + y;
-    double pW2x = (Xpos2 + number_of_lines) / number_of_lines * diameter + x;
-    double pW2y = (number_of_lines - Ypos)  / number_of_lines * diameter + y;
-    double pW3x = (Xpos1 + number_of_lines) / number_of_lines * diameter + x;
-    double pW3y = (Ypos + number_of_lines)  / number_of_lines * diameter + y;
-    double pW4x = (Xpos2 + number_of_lines) / number_of_lines * diameter + x;
-    double pW4y = (Ypos + number_of_lines)  / number_of_lines * diameter + y;
-    drawLine(pW1x, pW1y, pW2x, pW2y, White);
-    drawLine(pW3x, pW3y, pW4x, pW4y, White);
-  }
-  drawCircle(x + diameter - 1, y + diameter, diameter / 2, Black);
-}
 
 
 void DisplayForecastSection(int x, int y) {
@@ -581,25 +436,7 @@ void DrawPressureAndTrend(int x, int y, float pressure, String slope) {
   }
 }
 
-void DisplayStatusSection(int x, int y, int rssi) {
-  setFont(OpenSans8B);
-  DrawRSSI(x + 305, y + 15, rssi);
-  DrawBattery(x + 150, y);
-}
 
-void DrawRSSI(int x, int y, int rssi) {
-  int WIFIsignal = 0;
-  int xpos = 1;
-  for (int _rssi = -100; _rssi <= rssi; _rssi = _rssi + 20) {
-    if (_rssi <= -20)  WIFIsignal = 30; //            <-20dbm displays 5-bars
-    if (_rssi <= -40)  WIFIsignal = 24; //  -40dbm to  -21dbm displays 4-bars
-    if (_rssi <= -60)  WIFIsignal = 18; //  -60dbm to  -41dbm displays 3-bars
-    if (_rssi <= -80)  WIFIsignal = 12; //  -80dbm to  -61dbm displays 2-bars
-    if (_rssi <= -100) WIFIsignal = 6;  // -100dbm to  -81dbm displays 1-bar
-    fillRect(x + xpos * 8, y - WIFIsignal, 6, WIFIsignal, Black);
-    xpos++;
-  }
-}
 
 boolean UpdateLocalTime() {
   struct tm timeinfo;
@@ -818,31 +655,6 @@ void addmoon(int x, int y, bool IconSize) {
   fillCircle(x - 16 + xOffset, y - 37 + yOffset, uint16_t(Small * 1.6), White);
 }
 
-void Nodata(int x, int y, bool IconSize, String IconName) {
-  if (IconSize == LargeIcon) setFont(OpenSans24B); else setFont(OpenSans12B);
-  drawString(x - 3, y - 10, "?", CENTER);
-}
-
-void DrawMoonImage(int x, int y) {
-  Rect_t area = {
-    .x = x, .y = y, .width  = moon_width, .height =  moon_height
-  };
-  epd_draw_grayscale_image(area, (uint8_t *) moon_data);
-}
-
-void DrawSunriseImage(int x, int y) {
-  Rect_t area = {
-    .x = x, .y = y, .width  = sunrise_width, .height =  sunrise_height
-  };
-  epd_draw_grayscale_image(area, (uint8_t *) sunrise_data);
-}
-
-void DrawSunsetImage(int x, int y) {
-  Rect_t area = {
-    .x = x, .y = y, .width  = sunset_width, .height =  sunset_height
-  };
-  epd_draw_grayscale_image(area, (uint8_t *) sunset_data);
-}
 
 
 /* (C) D L BIRD
@@ -919,6 +731,3 @@ void DrawGraph(int x_pos, int y_pos, int gwidth, int gheight, float Y1Min, float
     if (i < 2) drawFastVLine(x_pos + gwidth / 3 * i + gwidth / 3, y_pos, gheight, LightGrey);
   }
 }
-
-
-
