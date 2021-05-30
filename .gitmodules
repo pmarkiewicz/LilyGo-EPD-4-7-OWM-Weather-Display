@@ -1,0 +1,3 @@
+[submodule "lib/LilyGo-EPD47"]
+	path = lib/LilyGo-EPD47
+	url = https://github.com/Xinyuan-LilyGO/LilyGo-EPD47
